@@ -30,6 +30,7 @@ import {
   jwtPayload,
   prepareDaemonLaunch,
   resolveDaemonEntry,
+  retryAuthRejections,
   spawnDaemon,
   syncMachinePolicy,
   tokenExpiresSoon,
@@ -190,6 +191,35 @@ test('isAuthRejection finds an HTTP 401 anywhere in the cause chain', () => {
   assert.equal(isAuthRejection(new Error('wrapped', { cause: rejected })), true);
   assert.equal(isAuthRejection(Object.assign(new Error('bad gateway'), { status: 502 })), false);
   assert.equal(isAuthRejection(new Error('fetch failed')), false);
+});
+
+test('retryAuthRejections retries 401 answers and stops at the limit', async () => {
+  const rejected = () => Object.assign(new Error('unauthenticated'), { status: 401 });
+  const waits = [];
+  const wait = async (ms) => void waits.push(ms);
+
+  let calls = 0;
+  const recovered = await retryAuthRejections(async () => {
+    calls += 1;
+    if (calls < 3) throw rejected();
+    return 'minted';
+  }, { counter: authRejectionCounter(5), waitMs: 60_000, wait });
+  assert.equal(recovered, 'minted');
+  assert.deepEqual(waits, [60_000, 60_000]);
+
+  calls = 0;
+  await assert.rejects(retryAuthRejections(async () => {
+    calls += 1;
+    throw rejected();
+  }, { counter: authRejectionCounter(5), wait }), { status: 401 });
+  assert.equal(calls, 5);
+
+  calls = 0;
+  await assert.rejects(retryAuthRejections(async () => {
+    calls += 1;
+    throw new Error('fetch failed');
+  }, { wait }), /fetch failed/);
+  assert.equal(calls, 1);
 });
 
 test('authRejectionCounter gives up only after consecutive 401 answers', () => {

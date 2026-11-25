@@ -122,6 +122,27 @@ function authRejectionCounter(limit = AUTH_REJECTION_LIMIT) {
   };
 }
 
+// Runs work until it succeeds. A 401 is retried after waitMs until the counter gives up.
+// Any other error is thrown at once.
+async function retryAuthRejections(work, {
+  counter = authRejectionCounter(),
+  waitMs = DESCRIPTOR_REFRESH_MS,
+  wait = sleep,
+  onRetry = () => {},
+} = {}) {
+  for (;;) {
+    try {
+      const result = await work();
+      counter.succeeded();
+      return result;
+    } catch (error) {
+      if (!isAuthRejection(error) || counter.failed(error)) throw error;
+      onRetry(error);
+      await wait(waitMs);
+    }
+  }
+}
+
 function jwtPayload(token) {
   try {
     return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
@@ -633,7 +654,10 @@ async function run() {
     process.exit(exitCode);
   };
 
-  await renewCredentials();
+  await retryAuthRejections(renewCredentials, {
+    counter: rejections,
+    onRetry: (error) => console.error(`credential request: ${describeError(error)}; retrying in ${DESCRIPTOR_REFRESH_MS / 1000} seconds`),
+  });
   await heartbeat();
   daemon = startDaemon();
   void repeat(HEARTBEAT_MS, 'heartbeat', heartbeat);
@@ -738,6 +762,7 @@ export {
   jwtPayload,
   prepareDaemonLaunch,
   resolveDaemonEntry,
+  retryAuthRejections,
   spawnDaemon,
   tokenExpiresSoon,
   syncMachinePolicy,

@@ -283,7 +283,7 @@ journalctl --user -u grok-bot-headless -n 100 --no-pager
 
 The service uses `Restart=on-failure`. The controller also restarts the daemon if the daemon exits while the controller remains active.
 
-The backend answers HTTP 401 when it no longer accepts the account session or the installed Grok Bot version. A restart cannot fix that. The controller therefore exits with code 78 when a credential request gets a 401 at startup, or after 5 consecutive 401 answers while it runs (about 5 minutes). The unit sets `RestartPreventExitStatus=78`, so the service then stays in the `failed` state and shows up in `systemctl --user --failed` instead of looking active while the machine is offline. To recover, update the official Grok Bot package or run `grok-bot-headless login`, confirm with `grok-bot-headless check`, and start the service again.
+The backend answers HTTP 401 when it no longer accepts the account session or the installed Grok Bot version. A restart cannot fix that. The controller therefore exits with code 78 after 5 consecutive 401 answers to its credential requests, at startup or while it runs. Requests are 60 seconds apart, so a short backend problem heals without a restart. The unit sets `RestartPreventExitStatus=78`, so the service then stays in the `failed` state and shows up in `systemctl --user --failed` instead of looking active while the machine is offline. To recover, update the official Grok Bot package or run `grok-bot-headless login`, confirm with `grok-bot-headless check`, and start the service again.
 
 ## Files and credentials
 
