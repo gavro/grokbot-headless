@@ -10,6 +10,7 @@ EnvironmentFile=-%h/.config/grok-bot-headless/environment
 ExecCondition=%h/.local/bin/grok-bot-headless check --local
 ExecStart=%h/.local/bin/grok-bot-headless run
 Restart=on-failure
+RestartPreventExitStatus=78
 RestartSec=5s
 TimeoutStopSec=15s
 KillMode=mixed

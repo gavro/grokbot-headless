@@ -52,7 +52,7 @@ const DAEMON_CONTAINER_PATH = DAEMON_SCRIPT.includes('.asar/')
   ? `${DAEMON_SCRIPT.slice(0, DAEMON_SCRIPT.indexOf('.asar/'))}.asar`
   : DAEMON_SCRIPT;
 const PACKAGE_JSON_PATH = process.env.GROK_BOT_PACKAGE_JSON || join(dirname(APP_BINARY), 'resources', 'app.asar', 'package.json');
-const TESTED_CLIENT_VERSIONS = Object.freeze(['0.30.0', '0.66.0']);
+const TESTED_CLIENT_VERSIONS = Object.freeze(['0.30.0', '0.66.0', '1.3.0']);
 const POLICIES = Object.freeze(['always', 'ask', 'never']);
 const TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
 const DESCRIPTOR_REFRESH_MS = 60 * 1000;
@@ -62,6 +62,10 @@ const DAEMON_STOP_GRACE_MS = 5 * 1000;
 const LOGIN_POLL_ATTEMPTS = 150;
 const LOGIN_POLL_MAX_MS = 10 * 1000;
 const SUBPROCESS_TIMEOUT_MS = 20 * 1000;
+// The backend answers 401 when it no longer accepts this account session or client version.
+// Retrying cannot fix that, so the controller exits with a code that systemd does not restart.
+const AUTH_REJECTED_EXIT_CODE = 78;
+const AUTH_REJECTION_LIMIT = 5;
 
 function validatedServiceUrl(value, label) {
   let parsed;
@@ -95,6 +99,27 @@ function describeError(error) {
     messages.push(current.message || String(current));
   }
   return messages.join(': ');
+}
+
+function isAuthRejection(error) {
+  for (let current = error; current; current = current.cause) {
+    if (current.status === 401) return true;
+  }
+  return false;
+}
+
+// Counts consecutive backend 401 answers. Any other outcome resets the count.
+function authRejectionCounter(limit = AUTH_REJECTION_LIMIT) {
+  let consecutive = 0;
+  return {
+    succeeded() {
+      consecutive = 0;
+    },
+    failed(error) {
+      consecutive = isAuthRejection(error) ? consecutive + 1 : 0;
+      return consecutive >= limit;
+    },
+  };
 }
 
 function jwtPayload(token) {
@@ -413,7 +438,9 @@ async function responseJson(response, action) {
     throw new Error(`${action} returned HTTP ${response.status} with invalid JSON`);
   }
   if (!response.ok) {
-    throw new Error(`${action} returned HTTP ${response.status}: ${body.message || body.error || text || 'unknown error'}`);
+    const error = new Error(`${action} returned HTTP ${response.status}: ${body.message || body.error || text || 'unknown error'}`);
+    error.status = response.status;
+    throw error;
   }
   return body;
 }
@@ -562,7 +589,21 @@ async function run() {
   let stopping = false;
   let daemon;
 
+  const rejections = authRejectionCounter();
+
   const renewCredentials = async () => mintDescriptor(identity, await loadCredentials());
+
+  const renewOrGiveUp = async () => {
+    try {
+      await renewCredentials();
+      rejections.succeeded();
+    } catch (error) {
+      if (!rejections.failed(error)) throw error;
+      console.error(`credential refresh: ${describeError(error)}`);
+      console.error(`The backend rejected ${AUTH_REJECTION_LIMIT} consecutive credential requests. Stopping. Update Grok Bot or run: ${CLI_NAME} login`);
+      await stop(AUTH_REJECTED_EXIT_CODE);
+    }
+  };
 
   const startDaemon = () => {
     const child = spawnDaemon(identity.machineId);
@@ -584,21 +625,21 @@ async function run() {
     }
   };
 
-  const stop = async (signal) => {
+  const stop = async (exitCode) => {
     if (stopping) return;
     stopping = true;
     await terminate(daemon);
     await rm(HEARTBEAT_PATH, { force: true });
-    process.exit(signal === 'SIGINT' ? 130 : 0);
+    process.exit(exitCode);
   };
 
   await renewCredentials();
   await heartbeat();
   daemon = startDaemon();
   void repeat(HEARTBEAT_MS, 'heartbeat', heartbeat);
-  void repeat(DESCRIPTOR_REFRESH_MS, 'credential refresh', renewCredentials);
-  process.on('SIGINT', () => void stop('SIGINT'));
-  process.on('SIGTERM', () => void stop('SIGTERM'));
+  void repeat(DESCRIPTOR_REFRESH_MS, 'credential refresh', renewOrGiveUp);
+  process.on('SIGINT', () => void stop(130));
+  process.on('SIGTERM', () => void stop(0));
   process.stdout.write(`Native Grok Bot node started: ${identity.label} (${identity.machineId})\n`);
 }
 
@@ -681,16 +722,18 @@ function isMainModule() {
 if (isMainModule()) {
   main(process.argv[2] || 'help', process.argv[3]).catch((error) => {
     console.error(`${CLI_NAME}: ${describeError(error)}`);
-    process.exitCode = 1;
+    process.exitCode = isAuthRejection(error) ? AUTH_REJECTED_EXIT_CODE : 1;
   });
 }
 
 export {
   accountScope,
+  authRejectionCounter,
   base64url,
   cursorChecksum,
   daemonLaunchEnv,
   hasCredentialShape,
+  isAuthRejection,
   isTestedClientVersion,
   jwtPayload,
   prepareDaemonLaunch,

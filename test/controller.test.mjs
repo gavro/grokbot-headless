@@ -20,10 +20,12 @@ import { fileURLToPath } from 'node:url';
 
 import {
   accountScope,
+  authRejectionCounter,
   base64url,
   cursorChecksum,
   daemonLaunchEnv,
   hasCredentialShape,
+  isAuthRejection,
   isTestedClientVersion,
   jwtPayload,
   prepareDaemonLaunch,
@@ -178,7 +180,29 @@ test('cursorChecksum matches the Grok Bot byte transform', () => {
 test('compatibility metadata identifies tested client versions', () => {
   assert.equal(isTestedClientVersion('0.30.0'), true);
   assert.equal(isTestedClientVersion('0.66.0'), true);
+  assert.equal(isTestedClientVersion('1.3.0'), true);
   assert.equal(isTestedClientVersion('99.0.0'), false);
+});
+
+test('isAuthRejection finds an HTTP 401 anywhere in the cause chain', () => {
+  const rejected = Object.assign(new Error('mint returned HTTP 401'), { status: 401 });
+  assert.equal(isAuthRejection(rejected), true);
+  assert.equal(isAuthRejection(new Error('wrapped', { cause: rejected })), true);
+  assert.equal(isAuthRejection(Object.assign(new Error('bad gateway'), { status: 502 })), false);
+  assert.equal(isAuthRejection(new Error('fetch failed')), false);
+});
+
+test('authRejectionCounter gives up only after consecutive 401 answers', () => {
+  const rejected = Object.assign(new Error('unauthenticated'), { status: 401 });
+  const counter = authRejectionCounter(3);
+  assert.equal(counter.failed(rejected), false);
+  assert.equal(counter.failed(rejected), false);
+  assert.equal(counter.failed(new Error('fetch failed')), false);
+  assert.equal(counter.failed(rejected), false);
+  counter.succeeded();
+  assert.equal(counter.failed(rejected), false);
+  assert.equal(counter.failed(rejected), false);
+  assert.equal(counter.failed(rejected), true);
 });
 
 test('0.66.0 resolves dist/local-exec-daemon/main.cjs from the asar', () => {
