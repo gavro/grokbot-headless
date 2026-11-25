@@ -1,0 +1,9 @@
+[Unit]
+Description=Restart the Grok Bot node after an official package update
+
+[Service]
+Type=oneshot
+# Give the package manager time to finish replacing the application files.
+ExecStart=/bin/sleep 30
+# Restart a running or failed node. A node that the user stopped stays stopped.
+ExecStart=/bin/sh -c 'if systemctl --user is-active --quiet grok-bot-headless.service || systemctl --user is-failed --quiet grok-bot-headless.service; then systemctl --user restart grok-bot-headless.service; fi'

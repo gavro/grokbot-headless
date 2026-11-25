@@ -246,6 +246,10 @@ The update keeps OAuth credentials, the machine identity, runtime data, and the 
 
 ### After an official Grok Bot update
 
+The installer adds `grok-bot-headless-upgrade.path`. It watches the official application archive and, 30 seconds after a package update replaces it, restarts a running or failed node so that it uses the new version. A node that you stopped stays stopped. This covers automatic updates, for example through `unattended-upgrades`. The service's local compatibility check still runs before the restart; if it fails, the node stays stopped.
+
+To check an update by hand:
+
 ```bash
 grok-bot-headless check &&
   systemctl --user restart grok-bot-headless &&
@@ -297,6 +301,8 @@ The source remains in the directory where you ran `git clone`. This README uses 
 ~/.local/bin/grok-bot-headless
 ~/.local/lib/grok-bot-headless/grok-bot-headless.mjs
 ~/.config/systemd/user/grok-bot-headless.service
+~/.config/systemd/user/grok-bot-headless-upgrade.service
+~/.config/systemd/user/grok-bot-headless-upgrade.path
 ~/.config/grok-bot-headless/environment
 ```
 
@@ -464,7 +470,7 @@ Run syntax and unit-file checks:
 ```bash
 node --check grok-bot-headless.mjs
 bash -n install.sh uninstall.sh bin/grok-bot-headless test/install.test.sh
-systemd-analyze --user verify grok-bot-headless.service
+systemd-analyze --user verify grok-bot-headless.service grok-bot-headless-upgrade.service
 ```
 
 The test suite includes pure protocol-helper tests, an isolated installer test, and an end-to-end test. The end-to-end test runs the CLI against a fake backend server and a fake daemon on the loopback interface. The tests use fake application and systemd commands. They do not contact Grok Bot.

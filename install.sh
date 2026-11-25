@@ -35,6 +35,16 @@ chmod 0700 "$config_dir"
 install -m 0755 "$repo_dir/grok-bot-headless.mjs" "$lib_dir/grok-bot-headless.mjs"
 install -m 0755 "$repo_dir/bin/grok-bot-headless" "$bin_dir/grok-bot-headless"
 install -m 0644 "$repo_dir/grok-bot-headless.service" "$unit_dir/grok-bot-headless.service"
+install -m 0644 "$repo_dir/grok-bot-headless-upgrade.service" "$unit_dir/grok-bot-headless-upgrade.service"
+# The path unit watches the file that an official package update replaces: the asar archive,
+# or the daemon script itself when it is not inside an archive.
+watched_path="$daemon_script"
+if [[ "$watched_path" == *.asar/* ]]; then
+  watched_path="${watched_path%%.asar/*}.asar"
+fi
+printf '[Unit]\nDescription=Watch the official Grok Bot application for package updates\n\n[Path]\nPathChanged=%s\nUnit=grok-bot-headless-upgrade.service\n\n[Install]\nWantedBy=default.target\n' \
+  "${watched_path//%/%%}" > "$unit_dir/grok-bot-headless-upgrade.path"
+chmod 0644 "$unit_dir/grok-bot-headless-upgrade.path"
 display="${DISPLAY:-:99}"
 if [[ "$PATH" == *$'\n'* || "$PATH" == *$'\r'* || "$display" == *$'\n'* || "$display" == *$'\r'* ]]; then
   printf 'Error: PATH and DISPLAY cannot contain line breaks.\n' >&2
@@ -58,6 +68,8 @@ printf 'GROK_BOT_BINARY="%s"\nGROK_BOT_DAEMON_SCRIPT="%s"\nPATH="%s"\nDISPLAY="%
 chmod 0600 "$environment_path"
 systemctl --user daemon-reload
 systemctl --user enable grok-bot-headless.service
+systemctl --user enable grok-bot-headless-upgrade.path
+systemctl --user restart grok-bot-headless-upgrade.path
 
 printf '\nInstalled grok-bot-headless.\n'
 printf 'Next steps:\n'

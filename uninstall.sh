@@ -9,8 +9,11 @@ elif [[ $# -gt 0 ]]; then
   exit 2
 fi
 
+systemctl --user disable --now grok-bot-headless-upgrade.path 2>/dev/null || true
 systemctl --user disable --now grok-bot-headless.service 2>/dev/null || true
 rm -f "${HOME}/.config/systemd/user/grok-bot-headless.service"
+rm -f "${HOME}/.config/systemd/user/grok-bot-headless-upgrade.service"
+rm -f "${HOME}/.config/systemd/user/grok-bot-headless-upgrade.path"
 rm -f "${HOME}/.local/bin/grok-bot-headless"
 rm -rf "${HOME}/.local/lib/grok-bot-headless"
 rm -f "${HOME}/.config/grok-bot-headless/environment"

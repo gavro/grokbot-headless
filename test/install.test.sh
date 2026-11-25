@@ -67,6 +67,8 @@ env -u DISPLAY \
 test -x "$home_dir/.local/bin/grok-bot-headless"
 test -x "$home_dir/.local/lib/grok-bot-headless/grok-bot-headless.mjs"
 test -f "$home_dir/.config/systemd/user/grok-bot-headless.service"
+test -f "$home_dir/.config/systemd/user/grok-bot-headless-upgrade.service"
+grep -qxF "PathChanged=$fake_dir/resources/app.asar" "$home_dir/.config/systemd/user/grok-bot-headless-upgrade.path"
 test "$(stat -c '%a' "$home_dir/.config/grok-bot-headless/environment")" = 600
 test "$(stat -c '%a' "$home_dir/.config/grok-bot-headless")" = 700
 written_path="$(env_value PATH)"
@@ -128,5 +130,7 @@ test ! -e "$home_dir/.config/grok-bot-headless/credentials.json"
 
 HOME="$home_dir" PATH="$shim_dir:$PATH" "$repo_dir/uninstall.sh" --purge
 test ! -e "$home_dir/.local/bin/grok-bot-headless"
+test ! -e "$home_dir/.config/systemd/user/grok-bot-headless-upgrade.path"
+test ! -e "$home_dir/.config/systemd/user/grok-bot-headless-upgrade.service"
 test ! -e "$home_dir/.local/lib/grok-bot-headless"
 test ! -e "$home_dir/.config/grok-bot-headless"
